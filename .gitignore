@@ -1,0 +1,33 @@
+# Environnements virtuels
+venv/
+.env/
+env/
+.venv/
+
+# Fichiers d'environnement
+.env
+*.env
+
+# Base de données
+db.sqlite3
+*.sqlite3
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Django
+media/
+static/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
