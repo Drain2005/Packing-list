@@ -1,0 +1,14 @@
+﻿services:
+  web:
+    build: .
+    ports:
+      - "80:8000"
+    environment:
+      - DEBUG=True
+      - DJANGO_SETTINGS_MODULE=packing_list.settings
+      - DOCKER_CONTAINER=False
+    volumes:
+      - ./staticfiles:/app/staticfiles
+      - ./media:/app/media
+      - ./:/app
+    restart: unless-stopped
