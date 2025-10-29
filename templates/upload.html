@@ -1,18 +1,134 @@
-
 <!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Générateur de Documents </title>
+    <title>Générateur de Documents - SEMBA</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
-        .container { max-width: 1200px; }
-        .header { background: linear-gradient(135deg, #2E4057 0%, #4A6491 100%); }
-        .card { box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        .btn-download { margin: 2px; }
-        .results-table { font-size: 0.9em; }
-        
+        :root {
+            --primary-color: #2E4057;
+            --secondary-color: #4A6491;
+            --accent-color: #3498db;
+            --success-color: #27ae60;
+            --warning-color: #f39c12;
+            --danger-color: #e74c3c;
+            --light-bg: #f8f9fa;
+            --border-color: #e1e5e9;
+            --text-dark: #2c3e50;
+            --text-light: #7f8c8d;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f7fa;
+            color: var(--text-dark);
+            line-height: 1.6;
+        }
+
+        .container { 
+            max-width: 1200px; 
+        }
+
+        .header { 
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M0,0 L100,0 L100,100 Z" fill="rgba(255,255,255,0.05)"/></svg>');
+            background-size: cover;
+        }
+
+        .card {
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            margin-bottom: 25px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.12);
+        }
+
+        .card-header {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            border-bottom: none;
+            border-radius: 12px 12px 0 0 !important;
+            padding: 1.25rem 1.5rem;
+        }
+
+        .card-header h5 {
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .card-body {
+            padding: 1.5rem;
+        }
+
+        .form-label {
+            font-weight: 600;
+            color: var(--text-dark);
+            margin-bottom: 0.5rem;
+        }
+
+        .form-control, .form-select {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-control:focus, .form-select:focus {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 0.2rem rgba(52, 152, 219, 0.25);
+        }
+
+        .form-text {
+            color: var(--text-light);
+            font-size: 0.85rem;
+            margin-top: 0.25rem;
+        }
+
+        .btn {
+            border-radius: 8px;
+            font-weight: 600;
+            padding: 0.75rem 1.5rem;
+            transition: all 0.3s ease;
+            border: none;
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, var(--success-color) 0%, #2ecc71 100%);
+            box-shadow: 0 4px 15px rgba(39, 174, 96, 0.3);
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(39, 174, 96, 0.4);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-color) 0%, #2980b9 100%);
+            box-shadow: 0 4px 15px rgba(52, 152, 219, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(52, 152, 219, 0.4);
+        }
+
         /* Style pour le loading */
         .loading-overlay {
             position: fixed;
@@ -20,28 +136,30 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(255, 255, 255, 0.9);
+            background: rgba(255, 255, 255, 0.95);
             display: none;
             justify-content: center;
             align-items: center;
             z-index: 9999;
             flex-direction: column;
+            backdrop-filter: blur(5px);
         }
         
         .loading-spinner {
-            width: 50px;
-            height: 50px;
-            border: 5px solid #f3f3f3;
-            border-top: 5px solid #2E4057;
+            width: 60px;
+            height: 60px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--accent-color);
             border-radius: 50%;
             animation: spin 1s linear infinite;
             margin-bottom: 20px;
         }
         
         .loading-text {
-            font-size: 18px;
-            font-weight: bold;
-            color: #2E4057;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--primary-color);
+            margin-bottom: 10px;
         }
         
         @keyframes spin {
@@ -52,27 +170,118 @@
         /* Style pour les champs obligatoires */
         .required-field::after {
             content: " *";
-            color: red;
+            color: var(--danger-color);
+            font-weight: bold;
         }
         
         /* Style pour les statuts */
-        .status-success { color: #198754; }
-        .status-error { color: #dc3545; }
-        .status-warning { color: #ffc107; }
+        .status-success { color: var(--success-color); }
+        .status-error { color: var(--danger-color); }
+        .status-warning { color: var(--warning-color); }
+
+        /* Alertes */
+        .alert {
+            border: none;
+            border-radius: 8px;
+            border-left: 4px solid;
+        }
+
+        .alert-success {
+            background-color: rgba(39, 174, 96, 0.1);
+            border-left-color: var(--success-color);
+        }
+
+        .alert-warning {
+            background-color: rgba(243, 156, 18, 0.1);
+            border-left-color: var(--warning-color);
+        }
+
+        .alert-danger {
+            background-color: rgba(231, 76, 60, 0.1);
+            border-left-color: var(--danger-color);
+        }
+ 
+        /* Footer */
+        footer {
+            background: gray;
+            margin-top: 3rem;
+            color: black;
+        }
+
+        /* Section de résultats */
+        .results-section {
+            background: linear-gradient(135deg, #fff 0%, var(--light-bg) 100%);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-top: 2rem;
+        }
+
+        /* Icônes */
+        .icon-wrapper {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+            background: rgba(52, 152, 219, 0.1);
+            border-radius: 10px;
+            margin-right: 10px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .card-body {
+                padding: 1rem;
+            }
+            
+            .btn {
+                width: 100%;
+                margin-bottom: 10px;
+            }
+            
+            .header h1 {
+                font-size: 1.75rem;
+            }
+        }
+
+        /* Animation pour les cartes */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .card {
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        /* Badges */
+        .badge {
+            font-weight: 500;
+            padding: 0.5em 0.75em;
+        }
     </style>
 </head>
 <body>
     <!-- Overlay de loading -->
     <div class="loading-overlay" id="loadingOverlay">
         <div class="loading-spinner"></div>
-        <div class="loading-text">Traitement en cours...</div>
+        <div class="loading-text">Traitement en cours</div>
         <div class="text-muted mt-2">Veuillez patienter, cette opération peut prendre quelques minutes</div>
     </div>
 
-    <div class="header text-white py-4 mb-4">
+    <div class="header text-white py-5 mb-5">
         <div class="container">
-            <h1 class="display-6">📊 Générateur de Documents </h1>
-            <p class="lead">Génération automatique de fichiers Excel et PDF pour la réception des bobines</p>
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h1 class="display-5 fw-bold mb-2">
+                        <i class="fas fa-file-excel me-3"></i>Générateur de Fichiers SEMBA
+                    </h1>
+                    <p class="lead mb-0 opacity-90">Génération automatique de fichiers Excel et PDF pour la réception des bobines</p>
+                </div>
+                <div class="col-md-4 text-end d-none d-md-block">
+                    <i class="fas fa-industry fa-4x opacity-50"></i>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -81,6 +290,7 @@
         {% if messages %}
             {% for message in messages %}
                 <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                    <i class="fas fa-{% if message.tags == 'success' %}check-circle{% elif message.tags == 'warning' %}exclamation-triangle{% else %}exclamation-circle{% endif %} me-2"></i>
                     {{ message }}
                     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                 </div>
@@ -89,75 +299,82 @@
 
         <!-- Formulaire d'upload -->
         <div class="card">
-            <div class="card-header bg-primary text-white">
-                <h5 class="mb-0">📁 Upload des fichiers</h5>
+            <div class="card-header text-white">
+                <h5 class="mb-0"><i class="fas fa-upload me-2"></i>Upload des fichiers</h5>
             </div>
             <div class="card-body">
                 <form method="post" enctype="multipart/form-data" id="uploadForm">
                     {% csrf_token %}
                     
-                    <div class="row mb-3">
+                    <div class="row mb-4">
                         <div class="col-md-6">
                             <label for="preparation_pl" class="form-label required-field">
                                 <strong>Fichier Preparation PL</strong>
                             </label>
-                            <input type="file" class="form-control" id="preparation_pl" name="preparation_pl" required accept=".xlsx, .xls">
+                            <div class="input-group">
+                                <span class="input-group-text bg-light"><i class="fas fa-file-excel text-primary"></i></span>
+                                <input type="file" class="form-control" id="preparation_pl" name="preparation_pl" required accept=".xlsx, .xls">
+                            </div>
                             <div class="form-text">Fichier Excel contenant les données des bobines</div>
                         </div>
                         <div class="col-md-6">
                             <label for="zzz_file" class="form-label">
-                                <strong>Fichier Template ZZZZ </strong>
+                                <strong>Fichier Template ZZZZ</strong>
                             </label>
-                            <input type="file" class="form-control" id="zzz_file" name="zzz_file" accept=".xlsx, .xls">
-                            <div class="form-text">Template Excel pour le formatage</div>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light"><i class="fas fa-file-alt text-secondary"></i></span>
+                                <input type="file" class="form-control" id="zzz_file" name="zzz_file" accept=".xlsx, .xls">
+                            </div>
+                            <div class="form-text">Template Excel </div>
                         </div>
                     </div>
 
-                    <div class="row mb-3">
+                    <div class="row mb-4">
                         <div class="col-md-3">
                             <label for="cariste" class="form-label">Cariste</label>
-                            <input type="text" class="form-control" id="cariste" name="cariste" value="">
+                            <div class="input-group">
+                                <span class="input-group-text bg-light"><i class="fas fa-user"></i></span>
+                                <input type="text" class="form-control" id="cariste" name="cariste" value="" placeholder="Nom du cariste">
+                            </div>
                         </div>
                         <div class="col-md-3">
                             <label for="fournisseur" class="form-label">Fournisseur</label>
-                            <input type="text" class="form-control" id="fournisseur" name="fournisseur" value="">
+                            <div class="input-group">
+                                <span class="input-group-text bg-light"><i class="fas fa-truck"></i></span>
+                                <input type="text" class="form-control" id="fournisseur" name="fournisseur" value="" placeholder="Nom du fournisseur">
+                            </div>
                         </div>
                         <div class="col-md-3">
                             <label for="numero_dossier" class="form-label">N° Dossier</label>
-                            <input type="text" class="form-control" id="numero_dossier" name="numero_dossier" value="">
+                            <div class="input-group">
+                                <span class="input-group-text bg-light"><i class="fas fa-folder"></i></span>
+                                <input type="text" class="form-control" id="numero_dossier" name="numero_dossier" value="" placeholder="Numéro de dossier">
+                            </div>
                         </div>
-                        
                     </div>
 
-                    <div class="row mb-3">
+                    <div class="row mb-4">
                         <div class="col-md-6">
                             <label for="type_certification" class="form-label">Type certification FSC</label>
-                            <input type="text" class="form-control" id="type_certification" name="type_certification" value="">
+                            <div class="input-group">
+                                <span class="input-group-text bg-light"><i class="fas fa-certificate"></i></span>
+                                <input type="text" class="form-control" id="type_certification" name="type_certification" value="" placeholder="Type de certification">
+                            </div>
                         </div>
                         <div class="col-md-6">
                             <label for="numero_certificat" class="form-label">N° Certificat FSC</label>
-                            <input type="text" class="form-control" id="numero_certificat" name="numero_certificat" value="">
-                        </div>
-                    </div>
-
-                    <div class="row mb-3">
-                        <div class="col-md-12">
-                            <label class="form-label required-field"><strong>Formats de sortie</strong></label>
-                            <div class="form-check form-check-inline">
-                                <input class="form-check-input" type="checkbox" id="generer_excel" name="generer_excel" checked>
-                                <label class="form-check-label" for="generer_excel">📊 Générer Excel</label>
-                            </div>
-                            <div class="form-check form-check-inline">
-                                <input class="form-check-input" type="checkbox" id="generer_pdf" name="generer_pdf" checked>
-                                <label class="form-check-label" for="generer_pdf">📄 Générer PDF</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light"><i class="fas fa-id-card"></i></span>
+                                <input type="text" class="form-control" id="numero_certificat" name="numero_certificat" value="" placeholder="Numéro de certificat">
                             </div>
                         </div>
                     </div>
 
-                    <button type="submit" class="btn btn-success btn-lg" id="submitButton">
-                        Générer les Documents
-                    </button>
-                    
+                    <div class="text-center mt-4">
+                        <button type="submit" class="btn btn-success btn-lg px-5 py-3" id="submitButton">
+                            Générer les fichiers Excel et PDF
+                        </button>
+                    </div>
                 </form>
             </div>
         </div>
@@ -165,64 +382,53 @@
         <!-- Résultats -->
         {% if show_results %}
         <div class="card mt-4">
-            <div class="card-body">
+            <div class="card-header text-white">
+                <h5 class="mb-0"><i class="fas fa-download me-2"></i>Résultats</h5>
+            </div>
+            <div class="card-body text-center">
                 <!-- ZIP  -->
                 {% if zip_path %}
                 <div class="mb-3">
                     <a href="{% url 'download_file' %}?file_path={{ zip_path|urlencode }}" 
-                       class="btn btn-primary btn-lg">
-                       📦 Télécharger Tous les Conteneurs (ZIP)
+                       class="btn btn-primary btn-lg px-4 py-3">
+                       <i class="fas fa-file-archive me-2"></i>Télécharger Tous les Conteneurs (ZIP)
                     </a>
-                    <small class="text-muted ms-2">Contient tous les fichiers Excel et PDF générés</small>
+                    <div class="mt-2">
+                        <small class="text-muted">Contient tous les fichiers Excel et PDF générés</small>
+                    </div>
                 </div>
                 {% endif %}
-                
             </div>
         </div>
         {% endif %}
     </div>
 
-    <footer class="bg-dark text-white text-center py-3 mt-5">
+    <footer class="py-4 mt-5">
         <div class="container">
-            <p class="mb-0">SEMBA - Générateur de Documents © 2025</p>
+            <p class="mb-0 text-center">
+                <i class="fas fa-industry me-2"></i>SEMBA - Générateur de Fichiers © 2025
+            </p>
         </div>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     
-   <script>
-    // Gestion du loading uniquement pour le formulaire principal
+    <script>
     document.getElementById('uploadForm').addEventListener('submit', function(e) {
-        // Empêcher le rechargement automatique de la page qui causerait le téléchargement
         e.preventDefault();
         
-        // Afficher le loading
         document.getElementById('loadingOverlay').style.display = 'flex';
         document.getElementById('submitButton').disabled = true;
-        document.getElementById('submitButton').innerHTML = '⏳ Traitement en cours...';
+        document.getElementById('submitButton').innerHTML = 'Traitement en cours...';
 
-        // Validation des cases à cocher
-        const excelChecked = document.getElementById('generer_excel').checked;
-        const pdfChecked = document.getElementById('generer_pdf').checked;
-        
-        if (!excelChecked && !pdfChecked) {
-            document.getElementById('loadingOverlay').style.display = 'none';
-            document.getElementById('submitButton').disabled = false;
-            document.getElementById('submitButton').innerHTML = '🚀 Générer les Documents';
-            alert('Veuillez sélectionner au moins un format de sortie (Excel ou PDF)');
-            return false;
-        }
-
-        // Soumettre le formulaire normalement (traitement côté serveur)
         this.submit();
     });
 
-    // Réactiver le bouton si la page se recharge (en cas d'erreur)
     window.addEventListener('load', function() {
         document.getElementById('submitButton').disabled = false;
-        document.getElementById('submitButton').innerHTML = '🚀 Générer les Documents';
+        document.getElementById('submitButton').innerHTML = 'Générer les fichiers Excel et PDF';
         document.getElementById('loadingOverlay').style.display = 'none';
     });
-</script>
+    </script>
 </body>
 </html>

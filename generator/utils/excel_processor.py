@@ -1,327 +1,368 @@
+
 import pandas as pd
 import os
-import re
 from datetime import datetime
 import openpyxl
-from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
-from openpyxl.drawing.image import Image
-import barcode
-from barcode.writer import ImageWriter
-import logging
-from pathlib import Path
+from openpyxl.styles import Font, Alignment
 import shutil
+import logging
+from copy import copy
 
 logger = logging.getLogger(__name__)
 
 class ExcelProcessor:
     def __init__(self):
         self.container_column = None
+        self.template_path = None
+
+    def set_template(self, template_path):
+        self.template_path = template_path
 
     def read_excel_file(self, file_path):
-        """Lit un fichier Excel et nettoie les noms de colonnes."""
-        try:
-            df = pd.read_excel(file_path, sheet_name=0)
-            df.columns = df.columns.astype(str)
-            df.columns = self._clean_column_names(df.columns)
-            df = self._remove_duplicate_columns(df)
+        df = pd.read_excel(file_path, sheet_name=0)
+        df.columns = df.columns.astype(str)
+        df.columns = self._clean_column_names(df.columns)
+        df = self._remove_duplicate_columns(df)
+        if self.container_column is None:
             self.container_column = self._find_container_column(df)
-            return df, list(df.columns)
-        except Exception as e:
-            logger.error(f"Erreur lors de la lecture du fichier Excel : {e}")
-            raise
+        return df, list(df.columns)
 
     def _clean_column_names(self, columns):
-        """Nettoie et uniformise les noms de colonnes."""
-        cleaned_columns = []
-        seen_columns = set()
         mapping = {
-            'REEL NO.': 'NO_BOBINE', 'NO BOBINE': 'NO_BOBINE', 'NUMERO BOBINE': 'NO_BOBINE',
-            'REEL_NO': 'NO_BOBINE', 'NÂ° BOBINE': 'NO_BOBINE', 'CONTAINER': 'CONTENEUR',
-            'CONTENEUR': 'CONTENEUR', 'CTN': 'CONTENEUR', 'DIAM MM': 'DIAMETRE',
-            'DIAMÈTRE': 'DIAMETRE', 'DIAMETRE': 'DIAMETRE', 'POIDS (KG)': 'POIDS',
-            'POIDS': 'POIDS', 'PRODUCT': 'PRODUIT', 'PRODUIT': 'PRODUIT',
-            'REF PAPIER': 'REF_PAPIER', 'REFERENCE PAPIER': 'REF_PAPIER',
-            'RÉFÉRENCE': 'REF_PAPIER', 'METRAGE': 'METRAGE', 'LONGUEUR': 'METRAGE'
+            'REEL NO.': 'NO_BOBINE',
+            'NO BOBINE': 'NO_BOBINE',
+            'NUMERO BOBINE': 'NO_BOBINE',
+            'REEL_NO': 'NO_BOBINE',
+            'N° BOBINE': 'NO_BOBINE',
+            'CONTAINER': 'CONTENEUR',
+            'CONTENEUR': 'CONTENEUR',
+            'CTN': 'CONTENEUR',
+            'DIAM MM': 'DIAMETRE',
+            'DIAMÈTRE': 'DIAMETRE',
+            'POIDS (KG)': 'POIDS',
+            'PRODUCT': 'PRODUIT',
+            'REF PAPIER': 'REF_PAPIER',
+            'REFERENCE PAPIER': 'REF_PAPIER',
+            'RÉFÉRENCE': 'REF_PAPIER',
+            'METRAGE': 'METRAGE',
+            'LONGUEUR': 'METRAGE'
         }
-
-        for col in columns:
-            col_str = str(col).strip().upper() if col else ""
-            clean_col = mapping.get(col_str, col_str)
-            if clean_col in seen_columns:
+        cleaned = []
+        seen = set()
+        for c in columns:
+            cc = mapping.get(str(c).strip().upper(), str(c).strip().upper())
+            if cc in seen:
                 i = 1
-                while f"{clean_col}_{i}" in seen_columns:
+                while f"{cc}_{i}" in seen:
                     i += 1
-                clean_col = f"{clean_col}_{i}"
-            seen_columns.add(clean_col)
-            cleaned_columns.append(clean_col)
-        return cleaned_columns
+                cc = f"{cc}_{i}"
+            seen.add(cc)
+            cleaned.append(cc)
+        return cleaned
 
     def _remove_duplicate_columns(self, df):
-        """Supprime les colonnes dupliquées."""
-        return df.loc[:, ~df.columns.duplicated()]
+        drop_cols = []
+        for i, c1 in enumerate(df.columns):
+            for j, c2 in enumerate(df.columns):
+                if i < j and df[c1].equals(df[c2]):
+                    drop_cols.append(c2)
+        if drop_cols:
+            df = df.drop(columns=set(drop_cols))
+        return df
 
     def _find_container_column(self, df):
-        """Trouve la colonne contenant les conteneurs."""
         for col in df.columns:
-            if col in ['CONTENEUR', 'CONTAINER', 'CTN']:
+            if any(k in col.lower() for k in ['container', 'conteneur', 'ctn', 'cnt']):
                 return col
-        return None
+        return df.columns[0]
 
-    def create_excel(self, data, container, output_dir, cariste, fournisseur,
-                     numero_dossier, type_certification, numero_certificat, template_path=None):
-        """Crée un fichier Excel basé sur le template pour un conteneur."""
+    def extract_containers(self, df):
+        if self.container_column in df.columns:
+            return [str(c).strip() for c in df[self.container_column].dropna().unique()]
+        return []
+    
+    def filter_by_container(self, df, container):
+        if self.container_column not in df.columns:
+            return df
+        return df[df[self.container_column] == container]
+
+    def _calculate_font_size(self, bobine_number):
+        """Calcule la taille de police adaptative selon la longueur du numéro"""
+        length = len(str(bobine_number))
+        
+        # Taille de police inversement proportionnelle à la longueur
+        if length <= 8:
+            return 20    # Grande taille pour les numéros courts
+        elif length <= 12:
+            return 18    # Taille moyenne
+        elif length <= 16:
+            return 16    # Taille réduite
+        elif length <= 20:
+            return 14    # Petite taille
+        else:
+            return 12    # Très petite taille pour les numéros très longs
+
+    def _calculate_column_width(self, bobine_number):
+        """Calcule la largeur de colonne adaptative"""
+        length = len(str(bobine_number))
+        
+        # Largeur proportionnelle à la longueur du texte
+        if length <= 8:
+            return 20    # Largeur standard
+        elif length <= 12:
+            return 24    # Largeur moyenne
+        elif length <= 16:
+            return 28    # Largeur augmentée
+        elif length <= 20:
+            return 32    # Largeur importante
+        else:
+            return 38    # Très large pour les numéros très longs
+
+    def _insert_barcode_to_excel(self, sheet, row, col, bobine_number, bobine_col):
+        """Insère une FORMULE Excel pour code-barres dynamique"""
         try:
-            required_columns = ['NO_BOBINE', 'REF_PAPIER', 'DIAMETRE', 'POIDS']
-            missing_cols = [col for col in required_columns if col not in data.columns]
-            if missing_cols:
-                logger.warning(f"Colonnes manquantes : {missing_cols}")
+            # Créer une formule qui référence la colonne des numéros de bobine
+            bobine_cell_ref = f"{openpyxl.utils.get_column_letter(bobine_col)}{row}"
+            
+            # La formule = simplement référencer la cellule du numéro de bobine
+            formula = f"={bobine_cell_ref}"
+            
+            # Mettre la FORMULE dans la cellule
+            cell = sheet.cell(row=row, column=col)
+            cell.value = formula  # FORMULE
+            
+            # Calculer la taille de police adaptative basée sur le numéro actuel
+            font_size = self._calculate_font_size(bobine_number)
+            
+            # Appliquer la police IDAutomationHC39M avec taille adaptative
+            cell.font = Font(
+                name='IDAutomationHC39M Free Version',
+                size=font_size,
+                bold=False
+            )
+            
+            # Centrer le code-barres dans la cellule
+            cell.alignment = Alignment(
+                horizontal='center', 
+                vertical='center'
+            )
+            
+            # Ajuster la largeur de colonne si nécessaire
+            col_letter = openpyxl.utils.get_column_letter(col)
+            calculated_width = self._calculate_column_width(bobine_number)
+            
+            # Ne modifier la largeur que si elle est insuffisante
+            current_width = sheet.column_dimensions[col_letter].width
+            if current_width is None or current_width < calculated_width:
+                sheet.column_dimensions[col_letter].width = calculated_width
+            
+            # HAUTEUR AUGMENTÉE : 45 pixels comme le template zzzz
+            sheet.row_dimensions[row].height = 45.0
+            
+            logger.debug(f"Code-barres DYNAMIQUE inséré: formule {formula} (taille: {font_size}, hauteur: 45)")
+            
+        except Exception as e:
+            logger.error(f"Erreur insertion code-barres dynamique: {e}")
+            # Fallback: valeur statique
+            sheet.cell(row=row, column=col).value = bobine_number
 
-            Path(output_dir).mkdir(parents=True, exist_ok=True)
+    def _copy_row_formatting(self, source_sheet, target_sheet, source_row, target_row):
+        """Copie le formatage d'une ligne source vers une ligne cible"""
+        # Copie la hauteur de ligne
+        if source_row in source_sheet.row_dimensions:
+            target_sheet.row_dimensions[target_row].height = source_sheet.row_dimensions[source_row].height
+        
+        for col in range(1, source_sheet.max_column + 1):
+            source_cell = source_sheet.cell(row=source_row, column=col)
+            target_cell = target_sheet.cell(row=target_row, column=col)
+            
+            # Copie le style
+            if source_cell.has_style:
+                target_cell.font = copy(source_cell.font)
+                target_cell.border = copy(source_cell.border)
+                target_cell.fill = copy(source_cell.fill)
+                target_cell.number_format = source_cell.number_format
+                target_cell.protection = copy(source_cell.protection)
+                target_cell.alignment = copy(source_cell.alignment)
+            
+            # Copie la largeur de colonne
+            col_letter = openpyxl.utils.get_column_letter(col)
+            if col_letter in source_sheet.column_dimensions:
+                target_sheet.column_dimensions[col_letter].width = source_sheet.column_dimensions[col_letter].width
+
+    def _add_extra_rows(self, sheet, start_row, num_extra_rows, template_row):
+        """Ajoute des lignes supplémentaires en copiant le format du template"""
+        # HAUTEUR AUGMENTÉE : 45 pixels comme le template zzzz
+        template_height = 45.0
+        
+        # Insère les nouvelles lignes
+        for i in range(num_extra_rows):
+            sheet.insert_rows(start_row)
+            
+            # Appliquer la hauteur augmentée
+            sheet.row_dimensions[start_row].height = template_height
+            
+            # Copie le format de la ligne template vers la nouvelle ligne
+            self._copy_row_formatting(sheet, sheet, template_row, start_row)
+        
+        return start_row
+
+    def _ensure_consistent_row_heights(self, sheet, start_row, end_row):
+        """Assure que toutes les lignes ont la même hauteur augmentée"""
+        # HAUTEUR AUGMENTÉE : 45 pixels pour toutes les lignes
+        barcode_row_height = 45.0
+        for row in range(start_row, end_row + 1):
+            sheet.row_dimensions[row].height = barcode_row_height
+
+    def create_excel(self, data, container, output_dir,
+                     cariste, fournisseur, numero_dossier,
+                     type_certification, numero_certificat):
+        
+        try:
+            os.makedirs(output_dir, exist_ok=True)
             filename = f"{container}.xlsx"
             file_path = os.path.join(output_dir, filename)
 
-            # Charger le template
-            if template_path and os.path.exists(template_path):
-                shutil.copy2(template_path, file_path)
-                workbook = openpyxl.load_workbook(file_path)
-                if 'Mode de remplisage' in workbook.sheetnames:
-                    logger.info("✓ Feuille 'Mode de remplisage' supprimée")
-                    del workbook['Mode de remplisage']
-            else:
-                workbook = openpyxl.Workbook()
-                logger.warning("Template non trouvé, création d'un nouveau classeur")
+            # Copie du template de base
+            if not os.path.exists(self.template_path):
+                raise FileNotFoundError(f"Template introuvable : {self.template_path}")
+            shutil.copy2(self.template_path, file_path)
 
-            sheet = workbook['FO57'] if 'FO57' in workbook.sheetnames else workbook.active
+            workbook = openpyxl.load_workbook(file_path)
+            sheet = workbook["FO57"] if "FO57" in workbook.sheetnames else workbook.active
+            base_positions = self._find_field_positions(sheet)
+
+            # Détection automatique du nombre de lignes de données dans le modèle
+            start_row = base_positions.get("start_row", 15)
+            
+            # Trouver la dernière ligne de données dans le template
+            last_data_row = start_row
+            while sheet.cell(row=last_data_row, column=1).value not in (None, "", " "):
+                last_data_row += 1
+            
+            template_data_rows = last_data_row - start_row
+            logger.info(f"Template a {template_data_rows} lignes de données (de {start_row} à {last_data_row-1})")
+
+            total_bobines = len(data)
+            
+            # Ajouter des lignes supplémentaires si nécessaire
+            if total_bobines > template_data_rows:
+                extra_rows_needed = total_bobines - template_data_rows
+                logger.info(f"Ajout de {extra_rows_needed} lignes supplémentaires dans la même feuille")
+                
+                # Utilise la dernière ligne de données comme template pour les nouvelles lignes
+                template_format_row = start_row + template_data_rows - 1
+                self._add_extra_rows(sheet, start_row + template_data_rows, extra_rows_needed, template_format_row)
+
+            #  APPLIQUER LA HAUTEUR AUGMENTÉE à toutes les lignes
+            end_row = start_row + total_bobines - 1
+            self._ensure_consistent_row_heights(sheet, start_row, end_row)
+
+            # Remplir toutes les données dans la même feuille
+            self._fill_single_sheet(sheet, data, base_positions,
+                                   container, cariste, fournisseur, numero_dossier,
+                                   type_certification, numero_certificat)
+
+            # Renommer la feuille principale
             sheet.title = "FO57"
 
-            # Remplir les données
-            self._fill_template_complete(
-                sheet, data, container, cariste, fournisseur, numero_dossier,
-                type_certification, numero_certificat, output_dir
-            )
+            # Supprimer les autres feuilles inutiles si elles existent
+            sheets_to_remove = [name for name in workbook.sheetnames if name != "FO57" and name != "Mode de remplisage"]
+            for sheet_name in sheets_to_remove:
+                del workbook[sheet_name]
 
             workbook.save(file_path)
-            self._cleanup_temp_images(output_dir)
-            logger.info(f"✓ Fichier Excel créé : {file_path}")
+            logger.info(f"Fichier {file_path} créé avec {total_bobines} bobines, hauteur augmentée (45px)")
             return file_path
 
         except Exception as e:
-            logger.error(f"Erreur lors de la création de l'Excel pour {container}: {e}")
+            logger.error(f"Erreur lors de la création Excel : {e}", exc_info=True)
             raise
 
-    def _fill_template_complete(self, sheet, data, container, cariste, fournisseur, 
-                                numero_dossier, type_certification, numero_certificat, output_dir):
-        """Remplit complètement le template avec les données."""
-        try:
-            # Chercher la ligne du tableau (en-têtes)
-            table_start_row = self._find_table_start_row(sheet)
-            
-            # Remplir les en-têtes du document (CARISTE, N° CT, DATE, No. Dossier)
-            self._fill_document_headers(sheet, cariste, numero_dossier)
-            
-            # Remplir les données du tableau
-            self._fill_table_data(
-                sheet, table_start_row, data, cariste, fournisseur, 
-                numero_certificat, type_certification, output_dir
-            )
-            
-            logger.debug("Template rempli complètement")
-        except Exception as e:
-            logger.error(f"Erreur lors du remplissage du template : {e}")
-            raise
+    def _fill_single_sheet(self, sheet, data, positions, container, cariste, fournisseur,
+                          numero_dossier, type_certification, numero_certificat):
+        """Remplit une seule feuille avec toutes les données"""
+        # Mettre à jour les en-têtes
+        if 'container' in positions:
+            sheet[positions['container']] = f"N° CT : {container}"
+        if 'cariste' in positions:
+            sheet[positions['cariste']] = f"CARISTE : {cariste}"
+        if 'date' in positions:
+            sheet[positions['date']] = f"DATE : {datetime.now().strftime('%d/%m/%Y')}"
+        if 'dossier' in positions:
+            sheet[positions['dossier']] = f"No. Dossier : {numero_dossier}"
 
-    def _find_table_start_row(self, sheet):
-        """Trouve la première ligne de données du tableau (après les en-têtes)."""
-        for row in sheet.iter_rows(min_row=1, max_row=20, min_col=1, max_col=10):
+        start_row = positions.get("start_row", 15)
+        code_barre_col = positions.get('col_code_barre', 4)  # Colonne D par défaut
+        bobine_col = positions.get('col_bobine', 2)  # Colonne B par défaut
+
+        for idx, (_, row) in enumerate(data.iterrows(), 1):
+            excel_row = start_row + idx - 1
+            bobine_number = row.get('NO_BOBINE', '')
+
+            if 'col_numero' in positions:
+                sheet.cell(row=excel_row, column=positions['col_numero'], value=idx)
+            if 'col_bobine' in positions:
+                sheet.cell(row=excel_row, column=positions['col_bobine'], value=bobine_number)
+            if 'col_fournisseur' in positions:
+                sheet.cell(row=excel_row, column=positions['col_fournisseur'], value=fournisseur)
+            if 'col_reference' in positions:
+                sheet.cell(row=excel_row, column=positions['col_reference'], value=row.get('REF_PAPIER', ''))
+            if 'col_diametre' in positions:
+                sheet.cell(row=excel_row, column=positions['col_diametre'], value=row.get('DIAMETRE', ''))
+            if 'col_poids' in positions:
+                sheet.cell(row=excel_row, column=positions['col_poids'], value=row.get('POIDS', ''))
+            if 'col_certificat' in positions:
+                sheet.cell(row=excel_row, column=positions['col_certificat'], value=str(numero_certificat))
+            if 'col_type_certif' in positions:
+                sheet.cell(row=excel_row, column=positions['col_type_certif'], value=type_certification)
+
+            # Vider le contenu existant de la cellule code-barre
+            sheet.cell(row=excel_row, column=code_barre_col).value = None
+            
+            # Insérer une FORMULE dynamique au lieu d'une valeur fixe
+            if bobine_number and bobine_number not in ['', 'NaN', 'None']:
+                self._insert_barcode_to_excel(sheet, excel_row, code_barre_col, bobine_number, bobine_col)
+            else:
+                # Si pas de numéro de bobine, laisser une formule vide
+                sheet.cell(row=excel_row, column=code_barre_col).value = ""
+
+    def _find_field_positions(self, sheet):
+        """Détecte la position des champs dans le template FO57"""
+        pos = {}
+        for row in sheet.iter_rows(max_row=20):
             for cell in row:
-                if cell.value and isinstance(cell.value, str):
-                    if 'TABLEAU' in str(cell.value).upper() or str(cell.value).strip() == 'N°':
-                        logger.debug(f"Ligne de tableau trouvée à la ligne {cell.row}")
-                        return cell.row + 1
-        # Par défaut, commencer après la ligne 6
-        logger.debug("Ligne de tableau par défaut : 7")
-        return 7
+                if cell.value:
+                    val = str(cell.value).upper().strip()
+                    if "CARISTE" in val:
+                        pos["cariste"] = cell.coordinate
+                    if "N° CT" in val or "CONTENEUR" in val:
+                        pos["container"] = cell.coordinate
+                    if "DATE" in val:
+                        pos["date"] = cell.coordinate
+                    if "DOSSIER" in val:
+                        pos["dossier"] = cell.coordinate
 
-    def _fill_document_headers(self, sheet, cariste, numero_dossier):
-        """Remplit les champs d'en-tête du document (CARISTE, N° DOSSIER, DATE, etc.)."""
-        try:
-            current_date = datetime.now().strftime("%d/%m/%Y")
-            
-            # Parcourir les premières lignes pour trouver et remplir les champs
-            for row in sheet.iter_rows(min_row=1, max_row=6):
-                for cell in row:
-                    if not cell.value:
-                        continue
-                    
-                    cell_value_upper = str(cell.value).upper().strip()
-                    
-                    if 'CARISTE' in cell_value_upper:
-                        # Remplir la cellule suivante avec le cariste
-                        next_col = cell.column + 1
-                        self._set_cell_value_safe(sheet, cell.row, next_col, cariste)
-                        logger.debug(f"Cariste rempli : {cariste}")
-                    
-                    elif 'N° CT' in cell_value_upper or 'N°CT' in cell_value_upper:
-                        next_col = cell.column + 1
-                        self._set_cell_value_safe(sheet, cell.row, next_col, "-")
-                    
-                    elif 'DATE' in cell_value_upper and 'DOSSIER' not in cell_value_upper:
-                        next_col = cell.column + 1
-                        self._set_cell_value_safe(sheet, cell.row, next_col, current_date)
-                        logger.debug(f"Date remplie : {current_date}")
-                    
-                    elif 'DOSSIER' in cell_value_upper or 'N°. DOSSIER' in cell_value_upper:
-                        next_col = cell.column + 1
-                        self._set_cell_value_safe(sheet, cell.row, next_col, numero_dossier)
-                        logger.debug(f"Numéro dossier rempli : {numero_dossier}")
-        except Exception as e:
-            logger.error(f"Erreur lors du remplissage des en-têtes du document : {e}")
-
-    def _fill_table_data(self, sheet, start_row, data, cariste, fournisseur, 
-                        numero_certificat, type_certification, output_dir):
-        """Remplit le tableau des données."""
-        try:
-            current_row = start_row
-            
-            for idx, (_, row_data) in enumerate(data.iterrows()):
-                # Remplir chaque colonne
-                no_bobine = self._safe_get_value(row_data, 'NO_BOBINE', '')
-                ref_papier = self._safe_get_value(row_data, 'REF_PAPIER', '')
-                diametre = self._safe_get_value(row_data, 'DIAMETRE', '')
-                poids = self._safe_get_value(row_data, 'POIDS', '')
-
-                # Col 1: Numéro
-                self._set_cell_value_safe(sheet, current_row, 1, idx + 1)
-                
-                # Col 2: Code-barres (inséré après)
-                # Col 3: N° bobine
-                self._set_cell_value_safe(sheet, current_row, 3, no_bobine)
-                
-                # Col 4: N° bobine entre parenthèses (format template)
-                self._set_cell_value_safe(sheet, current_row, 4, f"({no_bobine})")
-                
-                # Col 5: Fournisseur
-                self._set_cell_value_safe(sheet, current_row, 5, fournisseur)
-                
-                # Col 6: Référence papier
-                self._set_cell_value_safe(sheet, current_row, 6, ref_papier)
-                
-                # Col 7: Diamètre
-                self._set_cell_value_safe(sheet, current_row, 7, diametre)
-                
-                # Col 8: Poids
-                self._set_cell_value_safe(sheet, current_row, 8, poids)
-                
-                # Col 9: N° Certificat
-                self._set_cell_value_safe(sheet, current_row, 9, numero_certificat)
-                
-                # Col 10: Type certification
-                self._set_cell_value_safe(sheet, current_row, 10, type_certification)
-                
-                # Col 11: Observation
-                self._set_cell_value_safe(sheet, current_row, 11, "")
-                
-                # Insérer le code-barres en colonne 2
-                self._insert_barcode_in_template(sheet, no_bobine, output_dir, idx, current_row, 2)
-                
-                current_row += 1
-                
-            logger.info(f"✓ {len(data)} lignes de tableau remplies")
-        except Exception as e:
-            logger.error(f"Erreur lors du remplissage du tableau : {e}")
-            raise
-
-    def _safe_get_value(self, row_data, column, default=''):
-        """Récupère une valeur de manière sécurisée."""
-        try:
-            if column not in row_data.index:
-                return default
-            value = row_data[column]
-            if pd.isna(value):
-                return default
-            if isinstance(value, (tuple, list)):
-                logger.warning(f"Valeur tuple/liste détectée dans {column}: {value}")
-                return str(value)
-            if isinstance(value, (int, float)) and column in ['DIAMETRE', 'POIDS']:
-                return float(value)
-            return str(value).strip()
-        except Exception as e:
-            logger.error(f"Erreur lors de la récupération de {column}: {e}")
-            return default
-
-    def _set_cell_value_safe(self, sheet, row, col, value):
-        """Définit la valeur d'une cellule en gérant les cellules fusionnées."""
-        try:
-            cell = sheet.cell(row=row, column=col)
-            
-            # Vérifier si c'est une cellule fusionnée
-            if cell.coordinate in sheet.merged_cells:
-                logger.debug(f"Cellule fusionnée ignorée : {cell.coordinate}")
-                return
-            
-            if isinstance(value, (tuple, list)):
-                logger.warning(f"Valeur tuple/liste à ({row},{col}): {value}")
-                value = str(value)
-            
-            cell.value = value
-        except Exception as e:
-            logger.error(f"Erreur à la cellule ({row},{col}): {e}")
-
-    def _insert_barcode_in_template(self, sheet, barcode_value, output_dir, idx, row, col):
-        """Insère un code-barres dans le template."""
-        try:
-            if not barcode_value or not isinstance(barcode_value, str):
-                logger.error(f"Code-barres invalide à la ligne {row}: {barcode_value}")
-                return
-
-            barcode_value = ''.join(c for c in barcode_value if c.isalnum())
-            if not barcode_value:
-                logger.warning(f"Code-barres vide après nettoyage à la ligne {row}")
-                return
-
-            temp_dir = os.path.join(output_dir, 'temp_barcodes')
-            Path(temp_dir).mkdir(parents=True, exist_ok=True)
-            
-            # save() ajoute automatiquement .png
-            barcode_filename = f"barcode_{idx}_{row}"
-            barcode_path_without_ext = os.path.join(temp_dir, barcode_filename)
-            
-            logger.debug(f"Génération code-barres : {barcode_value}")
-            code128 = barcode.get('code128', barcode_value, writer=ImageWriter())
-            code128.save(barcode_path_without_ext)
-            
-            barcode_path = f"{barcode_path_without_ext}.png"
-            if not os.path.exists(barcode_path):
-                logger.warning(f"Fichier code-barres non créé : {barcode_path}")
-                return
-
-            img = Image(barcode_path)
-            img.width, img.height = 100, 30
-            cell_address = f"{chr(64 + col)}{row}"
-            sheet.add_image(img, cell_address)
-            logger.info(f"✓ Code-barres inséré : {cell_address}")
-        except Exception as e:
-            logger.warning(f"Erreur code-barres à ({row},{col}): {e}")
-
-    def _cleanup_temp_images(self, output_dir):
-        """Nettoie les images temporaires."""
-        temp_dir = os.path.join(output_dir, 'temp_barcodes')
-        try:
-            if os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir)
-                logger.info(f"✓ Dossier temporaire supprimé")
-        except Exception as e:
-            logger.warning(f"Erreur nettoyage dossier temporaire : {e}")
-
-    def extract_containers(self, data):
-        """Extrait la liste des conteneurs uniques."""
-        if self.container_column and self.container_column in data.columns:
-            containers = data[self.container_column].dropna().unique().tolist()
-            return [str(c) for c in containers if c]
-        return []
-
-    def filter_by_container(self, data, container):
-        """Filtre les données par conteneur."""
-        if self.container_column and self.container_column in data.columns:
-            return data[data[self.container_column] == container]
-        return pd.DataFrame()
+        for r in range(1, 40):
+            for c in range(1, 40):
+                v = str(sheet.cell(row=r, column=c).value or "").upper().strip()
+                if v in ["N°", "NO", "NUMERO"]:
+                    pos["col_numero"] = c
+                    pos["start_row"] = r + 1
+                elif "N° FOURNISSEUR" in v or "NO FOURNISSEUR" in v:
+                    pos["col_bobine"] = c
+                elif v == "FOURNISSEUR":
+                    pos["col_fournisseur"] = c
+                elif "REF" in v or "RÉFÉRENCE" in v:
+                    pos["col_reference"] = c
+                elif "DIAM" in v:
+                    pos["col_diametre"] = c
+                elif "POIDS" in v:
+                    pos["col_poids"] = c
+                elif v in ["N° CERTIFICAT FSC", "CERTIFICAT FSC"]:
+                    pos["col_certificat"] = c
+                elif "TYPE" in v or "CERTIFICATION" in v:
+                    pos["col_type_certif"] = c
+                elif "CODE BARRE" in v:
+                    pos["col_code_barre"] = c
+        return pos
